@@ -1,0 +1,476 @@
+import io
+import os
+import re
+import subprocess 
+from html.parser import HTMLParser
+import zipfile 
+
+# --- 1. Dependencies Check ---
+
+def check_command(command):
+    """Check if a command is available on the system."""
+    try:
+        subprocess.check_output([command, '--version'], stderr=subprocess.STDOUT)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+    else:
+        return True
+
+if not check_command('pyglossary'):
+    print("ERROR: pyglossary is required! Please install it.")
+    exit(1)
+if not check_command('python3'):
+    print("ERROR: python3 is required!")
+    exit(1)
+
+# --- 2. Initial Prompt and Skip Logic ---
+
+print("="*60)
+print("Dictionary Conversion Tool by Ya Qalb 💖")
+print("="*60)
+
+# Prompt to check if input file already exists
+skip_pyglossary = input("Do you already have the input file (Tab-separated TXT or MTXT) and want to proceed directly to DSL conversion? (y/n): ").strip().lower()
+
+# Flag to control whether the script should proceed to the main conversion logic
+proceed_to_dsl = False
+
+# --- Process Flow based on User Input ---
+
+if skip_pyglossary == 'y':
+    # User confirms they have the file and want to proceed directly.
+    print("Skipping Pyglossary and proceeding directly to DSL conversion.")
+    proceed_to_dsl = True
+else:
+    # User does NOT have the file, so they must run Pyglossary first.
+    
+    # --- STEP 1: Run Pyglossary for manual conversion to MTXT ---
+    print("\n" + "="*60)
+    print("  STEP 1: Run Pyglossary for manual conversion to MTXT")
+    print("  (Please convert your source dictionary file manually now)")
+    print("="*60)
+    
+    try:
+        subprocess.call('pyglossary --cmd', shell=True)
+    except Exception as e:
+        print(f"Error running pyglossary: {e}")
+        exit(1)
+
+    # --- STEP 2: Ask to Convert TXT/MTXT to DSL (only if pyglossary was run) ---
+    print("\n" + "="*60)
+    answer = input("STEP 2: Do you want to convert the resulting file to .dsl format? (y/n): ").strip().lower()
+
+    if answer == "y":
+        proceed_to_dsl = True
+
+if not proceed_to_dsl:
+    print("Conversion to DSL skipped. Exiting.")
+    exit(0)
+
+# ========== Get Input File and Metadata ==========
+
+# Get file path
+input_file = input("Enter the input file path (e.g., MyDict.txt or MyDict.mtxt): ").strip()
+while not os.path.isfile(input_file):
+    print("File not found, try again.")
+    input_file = input("Enter the input file path: ").strip()
+
+# Defining defaults
+dict_name = os.path.splitext(os.path.basename(input_file))[0]
+source_lang = ""
+target_lang = ""
+raw_content_lines = []
+
+# IMPROVED DETECTION VARIABLES
+mtxt_header_count = 0
+mtxt_separator_found = False
+tab_separator_found = False
+
+try:
+    with io.open(input_file, "r", encoding="utf-8") as f:
+        # Read all lines to analyze structure and parse later
+        for i, line in enumerate(f):
+            raw_content_lines.append(line)
+            
+            # --- IMPROVED FILE DETECTION LOGIC ---
+            # تم زيادة نطاق البحث إلى 200 سطر لتغطية ملفات pyglossary
+            if i < 200:
+                stripped_line = line.strip()
+                
+                # 1. Count MTXT header lines (e.g., ##name, ##sourceLang)
+                if stripped_line.startswith("##"):
+                    mtxt_header_count += 1
+                
+                # 2. Check for the mandatory MTXT entry separator (</>)
+                if "</>" in stripped_line:
+                    mtxt_separator_found = True
+                
+                # 3. Check for Tab separator (TXT format) - يجب أن لا يكون سطر رأس MTXT
+                if "\t" in line and not line.startswith("##"):
+                    tab_separator_found = True
+                    
+except Exception as e:
+    print(f"❌ Error reading input file: {e}")
+    exit(1)
+
+# FINAL DECISION: Improved file type detection
+file_extension = input_file.lower()
+
+if file_extension.endswith('.mtxt'):
+    # إذا كان الامتداد .mtxt، نثق به ونعتبره MTXT
+    is_mtxt = True
+    print("File extension is .mtxt - processing as MTXT format")
+elif file_extension.endswith('.txt'):
+    # إذا كان الامتداد .txt: نعتمد على وجود فاصل الإدخال </>
+    # هذا يحل مشكلة الرؤوس المتبقية من pyglossary التي لا تجعل الملف MTXT بالضرورة
+    if mtxt_separator_found:
+        is_mtxt = True
+        print("File extension is .txt but content appears to be MTXT format (</> found)")
+    else:
+        is_mtxt = False
+        print("File extension is .txt - processing as Tab-separated TXT format (No </> found)")
+else:
+    # للامتدادات الأخرى: الاعتماد على وجود فاصل الإدخال </> كأولوية
+    if mtxt_separator_found:
+        is_mtxt = True
+        print("Detected MTXT format based on content (</> found)")
+    elif tab_separator_found:
+        is_mtxt = False
+        print("Detected Tab-separated TXT format based on content (No </> but Tab found)")
+    else:
+        # Default fallback - ask user
+        print("⚠️  Could not auto-detect file format")
+        user_choice = input("Is this file MTXT format? (y/n): ").strip().lower()
+        is_mtxt = (user_choice == 'y')
+         
+# --- Conditional Parsing ---
+
+entries_list = []
+
+if is_mtxt:
+    print("Processing as MTXT format...")
+    
+    # 1. Extract metadata and process content lines
+    content_lines = []
+    for line in raw_content_lines:
+        stripped = line.strip()
+        
+        # Parse headers
+        if stripped.startswith("##name"):
+            dict_name = stripped.split("\t", 1)[1].strip()
+        elif stripped.startswith("##sourceLang"):
+            source_lang = stripped.split("\t", 1)[1].strip()
+        elif stripped.startswith("##targetLang"):
+            target_lang = stripped.split("\t", 1)[1].strip()
+        elif stripped.startswith("##"):
+            continue # تجاهل باقي الرؤوس
+        else:
+            # MTXT often has literal \n which needs removal
+            clean_line = line.replace("\\n", "")
+            content_lines.append(clean_line.rstrip("\n"))
+            
+    # 2. Split entries by </> and handle links (MTXT structure)
+    raw = "\n".join(content_lines)
+    blocks = [b.strip() for b in raw.split("</>") if b.strip()]
+
+    main_entries = {}
+    links = {}
+    groups = {}
+
+    for block in blocks:
+        lines = [l.strip() for l in block.split("\n") if l.strip()]
+        if not lines:
+            continue
+        head = lines[0] # The main headword (usually)
+
+        # LINK handling: @@@LINK=
+        if len(lines) == 2 and lines[1].startswith("@@@LINK="):
+            target = lines[1].replace("@@@LINK=", "").strip()
+            links[head] = target
+        else:
+            # Content lines start from index 1, join them back for HTML parsing
+            main_entries[head] = "\n".join(lines[1:])
+
+    # 3. Build word groups (headword + all linked words)
+    for head in main_entries:
+        groups[head] = [head]
+
+    for word, parent in links.items():
+        if parent in groups:
+            groups[parent].append(word)
+
+    # 4. Standardize output to entries_list
+    for main_head, headwords in groups.items():
+        html_block = main_entries.get(main_head, "")
+        # Filter out link-only words that don't have an entry block
+        if html_block or headwords:
+            # Note: For MTXT, headwords are already split by the MTXT structure, 
+            # so we don't need to check for '|' here.
+            entries_list.append({
+                'headwords': headwords,
+                'html': html_block
+            })
+            
+    # --- Prompt for languages if not found in MTXT headers ---
+    if not source_lang:
+        source_lang = input(f"Enter Source Language (e.g., ENGLISH): ").strip().upper() or "ENGLISH"
+    if not target_lang:
+        target_lang = input(f"Enter Target Language (e.g., ARABIC): ").strip().upper() or "ARABIC"
+            
+else:
+    print("Processing as Tab-separated TXT format...")
+    
+    # --- Tab-TXT Parsing Logic ---
+    for line in raw_content_lines:
+        line = line.strip()
+        if not line:
+            continue
+        
+        # تخطي أسطر الرؤوس (##) كما طلب - وهذا هو السلوك الصحيح لملف TXT مفصول بـ Tab
+        if line.startswith("##"):
+            continue
+            
+        # Split line by the first Tab character
+        parts = line.split("\t", 1)
+        
+        if len(parts) != 2:
+            # Skip lines without the required tab separator
+            continue
+            
+        head = parts[0].strip()
+        html = parts[1].strip()
+        
+        # Split headwords by '|'
+        headwords = [h.strip() for h in head.split("|") if h.strip()]
+        
+        if headwords and html:
+            # Store the list of headwords and the corresponding HTML block
+            entries_list.append({
+                'headwords': headwords,
+                'html': html
+            })
+
+    # Since Tab-TXT doesn't have headers, prompt user for languages
+    if not source_lang:
+        source_lang = input(f"Enter Source Language (e.g., ENGLISH): ").strip().upper() or "ENGLISH"
+    if not target_lang:
+        target_lang = input(f"Enter Target Language (e.g., ARABIC): ").strip().upper() or "ARABIC"
+
+
+print(f"✅ Successfully loaded {len(entries_list)} entries.")
+
+# Defining the output DSL file name
+output_file = dict_name + ".dsl"
+print(f"Output DSL will be: {output_file}")
+
+
+# ========== Fix phonetic brackets only for pronunciation (No change) ==========
+def fix_phonetic_brackets(text):
+    dsl_codes = ["m1", "b", "i", "u", "c", "s", "/m", "/b", "/i", "/u", "/c", "/s"]
+
+    def repl(m):
+        inner = m.group(1).strip()
+        for code in dsl_codes:
+            if inner.startswith(code):
+                return f"[{inner}]"
+        return "{" + inner + "}"
+
+    return re.sub(r"\[([^\]]+)\]", repl, text)
+
+# ========== HTML Parser (Retaining p-tag logic) ==========
+class LingvoHTMLParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.output = ""
+        self.stack = []
+        self.paragraph_started = False 
+    
+    def emit(self, text):
+        self.output += text
+
+    def handle_starttag(self, tag, attrs):
+        attrs_dict = dict(attrs)
+        self.stack.append((tag, attrs_dict))
+
+        if tag in ["object", "img"]:
+            file_attr = attrs_dict.get("data") or attrs_dict.get("src")
+            if file_attr:
+                self.emit(f"[s]{file_attr}[/s]")
+
+        elif tag == "br":
+            self.emit("\n\t")
+
+        elif tag == "p":
+            if self.paragraph_started:
+                # الفاصل القوي للسطر الفارغ: \n\t[m1]\ [/m]\n\t
+                self.emit("\n\t[m1]\\ [/m]\n\t") 
+            self.paragraph_started = True
+
+        elif tag == "font":
+            color = attrs_dict.get("color")
+            if color:
+                clean = color.lstrip("#")
+                self.emit(f"[c {clean}]")
+
+        elif tag == "strong":
+            # Using strong for major division inside a definition
+            self.emit("[/m]\n\t[m1]")
+
+        elif tag == "b":
+            self.emit("[b]")
+        
+        elif tag == "i":
+            self.emit("[i]")
+
+        elif tag == "u":
+            self.emit("[u]")
+
+        elif tag == "s":
+            self.emit("[s]")
+    
+    def handle_endtag(self, tag):
+        if tag == "font":
+            for i in range(len(self.stack)-1, -1, -1):
+                stack_tag, attrs_dict = self.stack[i]
+                if stack_tag == "font":
+                    color = attrs_dict.get("color")
+                    if color:
+                        self.emit("[/c]")
+                    break
+        
+        elif tag == "p":
+            # فاصل سطر بسيط بعد نهاية الفقرة
+            self.emit("\n\t") 
+
+        elif tag == "b":
+            self.emit("[/b]")
+
+        elif tag == "i":
+            self.emit("[/i]")
+
+        elif tag == "u":
+            self.emit("[/u]")
+
+        elif tag == "s":
+            self.emit("[/s]")
+
+        elif tag == "strong":
+            self.emit("")
+    
+    def handle_data(self, data):
+        self.emit(data)
+    
+    def close(self):
+        super().close()
+        return self.output
+
+# ========== Write DSL ==========
+try:
+    with io.open(output_file, "w", encoding="utf-16") as out:
+        out.write(f'#NAME "{dict_name}"\n')
+        out.write(f'#INDEX_LANGUAGE "{source_lang}"\n')
+        out.write(f'#CONTENTS_LANGUAGE "{target_lang}"\n\n')
+
+        # Iterate over the standardized entries list
+        for entry in entries_list:
+            headwords = entry['headwords']
+            html_block = entry['html']
+
+            # 1. Write all headwords/aliases
+            for w in headwords:
+                out.write(w + "\n")
+
+            # If there is no content (link-only entries in MTXT), write an empty m1
+            if not html_block:
+                out.write("\t[m1][/m]\n")
+                continue
+
+            # 2. Parse HTML content
+            parser = LingvoHTMLParser()
+            parser.feed(html_block)
+            parsed = parser.close()
+
+            # 3. Apply phonetic fix
+            parsed = fix_phonetic_brackets(parsed)
+
+            # 4. Cleanup and formatting
+            
+            # Remove repeated hard paragraph breaks
+            parsed = re.sub(
+                r"(\n\t\[m1\]\\ \[/m\]\n\t\s*){2,}",
+                "\n\t[m1]\\ [/m]\n\t",
+                parsed
+            )
+            
+            # Remove excessive line breaks and tabs
+            parsed = re.sub(r"(\n\t){2,}", "\n\t", parsed)
+            parsed = re.sub(r"(\n\s*){2,}", "\n", parsed).strip()
+
+            # Ensure all lines start with a tab and apply [m1] where needed
+            lines = parsed.split("\n")
+            final_lines = []
+            for ln in lines:
+                ln = ln.strip()
+                if not ln:
+                    continue
+                
+                # Handle the strong blank line tag
+                if ln == "[m1]\\ [/m]":
+                     final_lines.append(f"\t{ln}")
+                # Add tab and [m1] to regular content lines
+                elif not ln.startswith("[m"):
+                    final_lines.append(f"\t[m1]{ln}[/m]")
+                else:
+                    final_lines.append(f"\t{ln}")
+                    
+            parsed = "\n".join(final_lines).strip() 
+
+            out.write(parsed + "\n")
+
+    print("\n✅ DSL conversion completed successfully.")
+    
+    dsl_conversion_success = True
+
+except Exception as e:
+    print(f"❌ Error during DSL conversion: {e}")
+    dsl_conversion_success = False
+
+
+# --- 4. ZIP Resources ---
+
+if dsl_conversion_success:
+    print("\n" + "="*60)
+    print("STEP 3: Checking for resources folder and compressing it...")
+    print("="*60)
+    
+    # We assume the resource folder name is based on the input file name
+    res_folder_path = input_file + "_res"
+
+    print(f"Searching for resources folder: {res_folder_path}")
+
+    if os.path.isdir(res_folder_path):
+        # The zip file name is based on the DSL output name (MyDict.files.dsl.zip)
+        zip_output_file = output_file + ".files.zip"
+
+        print(f"Resources folder found. Starting ZIP compression to: {zip_output_file}")
+
+        try:
+            with zipfile.ZipFile(zip_output_file, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for root, dirs, files in os.walk(res_folder_path):
+                    base_path_len = len(res_folder_path) + 1 
+                    
+                    for file in files:
+                        file_path = os.path.join(root, file)
+                        arcname = file_path[base_path_len:] 
+
+                        print(f"  Adding file: {arcname}")
+                        zipf.write(file_path, arcname)
+
+            print(f"✅ Resources compression completed successfully. ZIP file created: {zip_output_file}")
+
+        except Exception as e:
+            print(f"❌ Error during resources ZIP compression: {e}")
+
+    else:
+        print("Resources folder not found. Skipping ZIP compression step.")
+
