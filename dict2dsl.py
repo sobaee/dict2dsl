@@ -173,42 +173,62 @@ if is_mtxt:
     raw = "\n".join(content_lines)
     blocks = [b.strip() for b in raw.split("</>") if b.strip()]
 
-    main_entries = {}
-    links = {}
-    groups = {}
-
+    # NEW: تجميع كل المداخل لنفس الكلمة الرئيسية
+    headword_entries = {}
+    links_to_process = {}  # لتخزين الروابط بشكل منفصل
+    
     for block in blocks:
         lines = [l.strip() for l in block.split("\n") if l.strip()]
         if not lines:
             continue
-        head = lines[0] # The main headword (usually)
-
-        # LINK handling: @@@LINK=
-        if len(lines) == 2 and lines[1].startswith("@@@LINK="):
+            
+        headword = lines[0]  # الكلمة الرئيسية
+        
+        # التحقق إذا كان هذا مدخل رابط (@@@LINK=)
+        if len(lines) >= 2 and lines[1].startswith("@@@LINK="):
             target = lines[1].replace("@@@LINK=", "").strip()
-            links[head] = target
+            links_to_process[headword] = target
+            continue
+        
+        # إذا كانت هذه الكلمة موجودة مسبقاً، نضيف المحتوى الجديد إليها
+        if headword in headword_entries:
+            # دمج المحتوى مع المحتوى السابق
+            existing_content = headword_entries[headword]
+            new_content = "\n".join(lines[1:])
+            
+            # إضافة فاصل بين التعريفات المختلفة لنفس الكلمة
+            if existing_content and new_content:
+                headword_entries[headword] = existing_content + "\n[m1]\\ [/m]\n" + new_content
+            elif new_content:
+                headword_entries[headword] = existing_content + new_content
         else:
-            # Content lines start from index 1, join them back for HTML parsing
-            main_entries[head] = "\n".join(lines[1:])
+            # أول مدخل لهذه الكلمة
+            headword_entries[headword] = "\n".join(lines[1:])
 
-    # 3. Build word groups (headword + all linked words)
-    for head in main_entries:
-        groups[head] = [head]
+    # NEW: تجميع الكلمات المرتبطة
+    word_groups = {}
+    
+    # أولاً: إضافة كل الكلمات الرئيسية التي لديها محتوى
+    for headword in headword_entries:
+        word_groups[headword] = [headword]
+        
+    # ثانياً: معالجة الروابط وإضافتها للمجموعات المناسبة
+    for linked_word, main_word in links_to_process.items():
+        if main_word in word_groups:
+            word_groups[main_word].append(linked_word)
+        else:
+            # إذا لم توجد الكلمة الرئيسية، ننشئ مجموعة جديدة
+            word_groups[main_word] = [main_word, linked_word]
+            # نضيف مدخل فارغ للكلمة الرئيسية
+            headword_entries[main_word] = ""
 
-    for word, parent in links.items():
-        if parent in groups:
-            groups[parent].append(word)
-
-    # 4. Standardize output to entries_list
-    for main_head, headwords in groups.items():
-        html_block = main_entries.get(main_head, "")
-        # Filter out link-only words that don't have an entry block
-        if html_block or headwords:
-            # Note: For MTXT, headwords are already split by the MTXT structure, 
-            # so we don't need to check for '|' here.
+    # 4. تحويل إلى تنسيق entries_list
+    for main_head, all_headwords in word_groups.items():
+        html_content = headword_entries.get(main_head, "")
+        if html_content or all_headwords:
             entries_list.append({
-                'headwords': headwords,
-                'html': html_block
+                'headwords': all_headwords,
+                'html': html_content
             })
             
     # --- Prompt for languages if not found in MTXT headers ---
@@ -220,13 +240,15 @@ if is_mtxt:
 else:
     print("Processing as Tab-separated TXT format...")
     
-    # --- Tab-TXT Parsing Logic ---
+    # NEW: تجميع المداخل لنفس الكلمة الرئيسية في ملفات TXT أيضاً
+    headword_entries = {}
+    
     for line in raw_content_lines:
         line = line.strip()
         if not line:
             continue
         
-        # تخطي أسطر الرؤوس (##) كما طلب - وهذا هو السلوك الصحيح لملف TXT مفصول بـ Tab
+        # تخطي أسطر الرؤوس (##)
         if line.startswith("##"):
             continue
             
@@ -234,7 +256,6 @@ else:
         parts = line.split("\t", 1)
         
         if len(parts) != 2:
-            # Skip lines without the required tab separator
             continue
             
         head = parts[0].strip()
@@ -244,11 +265,31 @@ else:
         headwords = [h.strip() for h in head.split("|") if h.strip()]
         
         if headwords and html:
-            # Store the list of headwords and the corresponding HTML block
-            entries_list.append({
-                'headwords': headwords,
-                'html': html
-            })
+            # استخدام أول headword كمفتاح للتجميع
+            main_headword = headwords[0]
+            
+            if main_headword in headword_entries:
+                # دمج المحتوى مع المحتوى السابق
+                existing_content = headword_entries[main_headword]['html']
+                existing_headwords = headword_entries[main_headword]['headwords']
+                
+                # إضافة أي headwords جديدة
+                for hw in headwords:
+                    if hw not in existing_headwords:
+                        existing_headwords.append(hw)
+                
+                # دمج المحتوى مع فاصل
+                headword_entries[main_headword]['html'] = existing_content + "\n[m1]\\ [/m]\n" + html
+            else:
+                # أول مدخل لهذه الكلمة
+                headword_entries[main_headword] = {
+                    'headwords': headwords,
+                    'html': html
+                }
+
+    # تحويل إلى entries_list
+    for entry_data in headword_entries.values():
+        entries_list.append(entry_data)
 
     # Since Tab-TXT doesn't have headers, prompt user for languages
     if not source_lang:
@@ -529,8 +570,8 @@ if dsl_conversion_success:
         except FileNotFoundError:
             # هذا طبيعي لأن idzip يحذف الملف الأصلي
             if os.path.exists(output_file + ".dz"):
-                print(f"✅ DSL compression completed successfully!")
-                print(f"📁 Compressed file: {output_file}.dz")
+                print(f"✅ DSL conversion completed successfully!")
+                print(f"📁 Final compressed file: {output_file}.dz")
                 print("💾 Note: Original .dsl file was automatically removed by idzip")
             else:
                 print("⚠️ Original file removed but compressed file not found")
