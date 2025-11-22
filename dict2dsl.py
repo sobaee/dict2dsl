@@ -277,7 +277,7 @@ def fix_phonetic_brackets(text):
 
     return re.sub(r"\[([^\]]+)\]", repl, text)
 
-# ========== HTML Parser (Retaining p-tag logic) ==========
+# ========== HTML Parser (Updated with sound link conversion) ==========
 class LingvoHTMLParser(HTMLParser):
     def __init__(self):
         super().__init__()
@@ -327,6 +327,15 @@ class LingvoHTMLParser(HTMLParser):
 
         elif tag == "s":
             self.emit("[s]")
+            
+        elif tag == "a":
+            # تحويل روابط الصوت sound://
+            href = attrs_dict.get("href", "")
+            if href.startswith("sound://"):
+                # إزالة sound:// من البداية
+                sound_file = href[8:]
+                # تحويل إلى تنسيق DSL: [m1][s]filename.ogg[/s][/m]
+                self.emit(f"[m1][s]{sound_file}[/s][/m]")
     
     def handle_endtag(self, tag):
         if tag == "font":
@@ -356,6 +365,10 @@ class LingvoHTMLParser(HTMLParser):
 
         elif tag == "strong":
             self.emit("")
+            
+        elif tag == "a":
+            # لا نضيف أي شيء عند إغلاق رابط الصوت
+            pass
     
     def handle_data(self, data):
         self.emit(data)
@@ -474,3 +487,57 @@ if dsl_conversion_success:
     else:
         print("Resources folder not found. Skipping ZIP compression step.")
 
+# --- 5. Compress DSL to DSL.DZ using idzip ---
+if dsl_conversion_success:
+    print("\n" + "="*60)
+    print("STEP 4: Compressing DSL file to DSL.DZ format...")
+    print("="*60)
+    
+    # استخدام المسار المحدد لـ idzip في Termux
+    idzip_path = "/data/data/com.termux/files/usr/bin/idzip"
+    
+    if os.path.exists(idzip_path):
+        print("idzip found in Termux path. Starting DSL compression...")
+        
+        try:
+            # حفظ حجم الملف الأصلي قبل الضغط
+            original_size = os.path.getsize(output_file)
+            print(f"Original file size: {original_size} bytes")
+            
+            # Run idzip command with full path
+            command = f'{idzip_path} "{output_file}"'
+            print(f"Running command: {command}")
+            
+            result = subprocess.run(command, shell=True, capture_output=True, text=True)
+            
+            if result.returncode == 0:
+                print(f"✅ DSL compression completed successfully!")
+                print(f"📁 Compressed file: {output_file}.dz")
+                
+                # Check if the compressed file was created
+                if os.path.exists(output_file + ".dz"):
+                    compressed_size = os.path.getsize(output_file + ".dz")
+                    compression_ratio = (1 - compressed_size/original_size) * 100
+                    print(f"📊 Compression ratio: {compression_ratio:.1f}%")
+                    print(f"💾 Note: idzip automatically removes the original .dsl file")
+                else:
+                    print("⚠️ Compressed file was not created successfully")
+            else:
+                print(f"❌ Error during DSL compression:")
+                print(f"Error output: {result.stderr}")
+                
+        except FileNotFoundError:
+            # هذا طبيعي لأن idzip يحذف الملف الأصلي
+            if os.path.exists(output_file + ".dz"):
+                print(f"✅ DSL compression completed successfully!")
+                print(f"📁 Compressed file: {output_file}.dz")
+                print("💾 Note: Original .dsl file was automatically removed by idzip")
+            else:
+                print("⚠️ Original file removed but compressed file not found")
+                
+        except Exception as e:
+            print(f"❌ Error running idzip: {e}")
+    else:
+        print("⚠️ idzip not found in the specified Termux path.")
+        print("Please make sure python-idzip is installed in Termux:")
+        print("  pkg install python-idzip")
