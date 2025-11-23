@@ -460,24 +460,30 @@ try:
             parsed = re.sub(r"(\n\t){2,}", "\n\t", parsed)
             parsed = re.sub(r"(\n\s*){2,}", "\n", parsed).strip()
 
-            # Ensure all lines start with a tab and apply [m1] where needed
+            # Ensure every output line in DSL starts with a tab
+# INCLUDING lines coming directly from MTXT/TXT before HTML parsing
+# Ensure all lines start with a tab and apply [m1] where needed
+# Ensure every output line in DSL starts with a tab
             lines = parsed.split("\n")
             final_lines = []
+
             for ln in lines:
                 ln = ln.strip()
                 if not ln:
                     continue
-                
-                # Handle the strong blank line tag
+
+                # السطر المخصص للفاصل
                 if ln == "[m1]\\ [/m]":
-                     final_lines.append(f"\t{ln}")
-                # Add tab and [m1] to regular content lines
-                elif not ln.startswith("[m"):
-                    final_lines.append(f"\t[m1]{ln}[/m]")
+                    final_lines.append("\t" + ln)
+                    continue
+
+                # إذا السطر لا يحتوي [m..] نضيفه
+                if not ln.startswith("[m"):
+                    final_lines.append("\t[m1]" + ln + "[/m]")
                 else:
-                    final_lines.append(f"\t{ln}")
-                    
-            parsed = "\n".join(final_lines).strip() 
+                    final_lines.append("\t" + ln)
+
+            parsed = "\n".join(final_lines)
 
             out.write(parsed + "\n")
 
