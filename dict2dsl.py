@@ -336,7 +336,7 @@ class LingvoHTMLParser(HTMLParser):
         if tag in ["object", "img"]:
             file_attr = attrs_dict.get("data") or attrs_dict.get("src")
             if file_attr:
-                self.emit(f"[s]{file_attr}[/s]")
+                self.emit(f"\n\t[m1][s]{file_attr}[/s][/m]\n\t")
 
         elif tag == "br":
             self.emit("\n\t")
@@ -376,7 +376,7 @@ class LingvoHTMLParser(HTMLParser):
                 # إزالة sound:// من البداية
                 sound_file = href[8:]
                 # تحويل إلى تنسيق DSL: [m1][s]filename.ogg[/s][/m]
-                self.emit(f"[m1][s]{sound_file}[/s][/m]")
+                self.emit(f"\n\t[m1][s]{sound_file}[/s][/m]\n\t")
     
     def handle_endtag(self, tag):
         if tag == "font":
