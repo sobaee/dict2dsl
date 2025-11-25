@@ -147,6 +147,24 @@ else:
 
 entries_list = []
 
+
+# --- Smart Language Code Mapping ---
+def normalize_lang(user_input, default):
+    if not user_input:
+        return default
+    
+    u = user_input.strip().lower()
+
+    if u in ("en", "eng", "english"):
+        return "ENGLISH"
+    if u in ("ar", "arabic", "ara"):
+        return "ARABIC"
+    if u in ("de", "ge", "ger", "german", "deutsch"):
+        return "GERMAN"
+
+    # fallback
+    return user_input.strip().upper()
+    
 if is_mtxt:
     print("Processing as MTXT format...")
     
@@ -233,9 +251,10 @@ if is_mtxt:
             
     # --- Prompt for languages if not found in MTXT headers ---
     if not source_lang:
-        source_lang = input(f"Enter Source Language (e.g., ENGLISH): ").strip().upper() or "ENGLISH"
+        source_lang = normalize_lang(input("Enter Source Language (en/ar/de): "), "ENGLISH")
+
     if not target_lang:
-        target_lang = input(f"Enter Target Language (e.g., ARABIC): ").strip().upper() or "ARABIC"
+        target_lang = normalize_lang(input("Enter Target Language (en/ar/de): "), "ARABIC")
             
 else:
     print("Processing as Tab-separated TXT format...")
@@ -293,9 +312,10 @@ else:
 
     # Since Tab-TXT doesn't have headers, prompt user for languages
     if not source_lang:
-        source_lang = input(f"Enter Source Language (e.g., ENGLISH): ").strip().upper() or "ENGLISH"
+        source_lang = normalize_lang(input("Enter Source Language (en/ar/de): "), "ENGLISH")
+
     if not target_lang:
-        target_lang = input(f"Enter Target Language (e.g., ARABIC): ").strip().upper() or "ARABIC"
+        target_lang = normalize_lang(input("Enter Target Language (en/ar/de): "), "ARABIC")
 
 
 print(f"✅ Successfully loaded {len(entries_list)} entries.")
@@ -417,6 +437,8 @@ class LingvoHTMLParser(HTMLParser):
     def close(self):
         super().close()
         return self.output
+        
+
 
 # ========== Write DSL ==========
 try:
