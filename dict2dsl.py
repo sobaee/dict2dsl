@@ -326,25 +326,37 @@ print(f"Output DSL will be: {output_file}")
 
 
 # ========== Fix phonetic brackets only for pronunciation (No change) ==========
+# ========== Fix phonetic brackets - UPDATED to preserve DSL tags ==========
 def fix_phonetic_brackets(text):
-    dsl_codes = ["m1", "b", "i", "u", "c", "s", "/m", "/b", "/i", "/u", "/c", "/s"]
-
+    # قائمة بوسوم DSL التي نريد الحفاظ عليها
+    dsl_tags = ["m1", "b", "i", "u", "c", "s", "/m", "/b", "/i", "/u", "/c", "/s", 
+                "li", "/li", "ol", "/ol", "ul", "/ul"]  # NEW: added list tags
+    
     def repl(m):
         inner = m.group(1).strip()
-        for code in dsl_codes:
-            if inner.startswith(code):
+        
+        # إذا كان الوسم من وسوم DSL المعروفة، نتركه كما هو بين أقواس مربعة
+        for tag in dsl_tags:
+            if inner == tag or inner.startswith(tag + " "):
                 return f"[{inner}]"
+        
+        # وإلا نجعله بين أقواس معقوفة (للمحتوى الصوتي)
         return "{" + inner + "}"
 
     return re.sub(r"\[([^\]]+)\]", repl, text)
 
 # ========== HTML Parser (Updated with sound link conversion) ==========
+# ========== HTML Parser (Updated with list support) ==========
+# ========== HTML Parser (Updated with proper list numbering) ==========
+# ========== HTML Parser (Updated with list indentation) ==========
 class LingvoHTMLParser(HTMLParser):
     def __init__(self):
         super().__init__()
         self.output = ""
         self.stack = []
         self.paragraph_started = False 
+        self.list_stack = []  # NEW: سيخزن (type, level, start_number)
+        self.list_level = 0   # NEW: مستوى التداخل الحالي
     
     def emit(self, text):
         self.output += text
@@ -363,7 +375,6 @@ class LingvoHTMLParser(HTMLParser):
 
         elif tag == "p":
             if self.paragraph_started:
-                # الفاصل القوي للسطر الفارغ: \n\t[m1]\ [/m]\n\t
                 self.emit("\n\t[m1]\\ [/m]\n\t") 
             self.paragraph_started = True
 
@@ -374,7 +385,6 @@ class LingvoHTMLParser(HTMLParser):
                 self.emit(f"[c {clean}]")
 
         elif tag == "strong":
-            # Using strong for major division inside a definition
             self.emit("[/m]\n\t[m1]")
 
         elif tag == "b":
@@ -390,13 +400,39 @@ class LingvoHTMLParser(HTMLParser):
             self.emit("[s]")
             
         elif tag == "a":
-            # تحويل روابط الصوت sound://
             href = attrs_dict.get("href", "")
             if href.startswith("sound://"):
-                # إزالة sound:// من البداية
                 sound_file = href[8:]
-                # تحويل إلى تنسيق DSL: [m1][s]filename.ogg[/s][/m]
                 self.emit(f"\n\t[m1][s]{sound_file}[/s][/m]\n\t")
+        
+        # NEW: معالجة القوائم مع المسافة البادئة
+        elif tag == "ol":
+            self.list_level += 1
+            self.list_stack.append(('ol', self.list_level, 1))
+            self.emit("\n\t")  # فاصل قبل بداية القائمة
+            
+        elif tag == "ul":
+            self.list_level += 1
+            self.list_stack.append(('ul', self.list_level, 0))
+            self.emit("\n\t")  # فاصل قبل بداية القائمة
+            
+        elif tag == "li":
+            if self.list_stack:
+                list_type, level, number = self.list_stack[-1]
+                
+                # NEW: إضافة مسافة بادئة بناءً على مستوى القائمة
+                indent = "\t" * level  # تاب واحد لكل مستوى
+                
+                if list_type == 'ol':
+                    # قائمة مرتبة: نستخدم الرقم الحالي
+                    self.emit(f"{indent}{number}. ")
+                    self.list_stack[-1] = (list_type, level, number + 1)  # زيادة العداد
+                else:
+                    # قائمة غير مرتبة: نستخدم النقطة
+                    self.emit(f"{indent}• ")
+            else:
+                # إذا لم تكن داخل قائمة، نستخدم النقطة مع مسافة بادئة بسيطة
+                self.emit("\t• ")
     
     def handle_endtag(self, tag):
         if tag == "font":
@@ -409,14 +445,13 @@ class LingvoHTMLParser(HTMLParser):
                     break
         
         elif tag == "p":
-            # فاصل سطر بسيط بعد نهاية الفقرة
             self.emit("\n\t") 
 
         elif tag == "b":
             self.emit("[/b]")
 
         elif tag == "i":
-            self.emit("[/i]")
+            self.emit("[/i]\n\t[m1]\\ [/m]\n\t")
 
         elif tag == "u":
             self.emit("[/u]")
@@ -428,8 +463,23 @@ class LingvoHTMLParser(HTMLParser):
             self.emit("")
             
         elif tag == "a":
-            # لا نضيف أي شيء عند إغلاق رابط الصوت
             pass
+        
+        # NEW: إغلاق وسوم القوائم مع تقليل المستوى
+        elif tag == "ol":
+            if self.list_stack:
+                self.list_stack.pop()
+            self.list_level = max(0, self.list_level - 1)
+            self.emit("\n\t")  # فاصل بعد نهاية القائمة
+            
+        elif tag == "ul":
+            if self.list_stack:
+                self.list_stack.pop()
+            self.list_level = max(0, self.list_level - 1)
+            self.emit("\n\t")  # فاصل بعد نهاية القائمة
+            
+        elif tag == "li":
+            self.emit("\n\t")  # فاصل بعد كل عنصر قائمة
     
     def handle_data(self, data):
         self.emit(data)
