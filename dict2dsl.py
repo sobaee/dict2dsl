@@ -5,7 +5,17 @@ import subprocess
 from html.parser import HTMLParser
 import zipfile 
 
-# --- 1. Dependencies Check ---
+# ==============================================
+# DSL Dictionary Converter - Enhanced Complete Version
+# Version Sobae 💖 - Full DSL Tags Support
+# ==============================================
+
+print("="*60)
+print("DSL Dictionary Converter - Enhanced Complete Version")
+print("By Sobae 💖")
+print("="*60)
+
+# --- 1. Check Dependencies ---
 
 def check_command(command):
     """Check if a command is available on the system."""
@@ -16,35 +26,24 @@ def check_command(command):
     else:
         return True
 
-if not check_command('pyglossary'):
-    print("ERROR: pyglossary is required! Please install it.")
-    exit(1)
 if not check_command('python3'):
     print("ERROR: python3 is required!")
     exit(1)
 
-# --- 2. Initial Prompt and Skip Logic ---
+# --- 2. User Prompt ---
 
 print("="*60)
-print("Dictionary Conversion Tool by Ya Qalb 💖")
+print("STEP 1: File Setup")
 print("="*60)
 
-# Prompt to check if input file already exists
-skip_pyglossary = input("Do you already have the input file (Tab-separated TXT or MTXT) and want to proceed directly to DSL conversion? (y/n): ").strip().lower()
+skip_pyglossary = input("Do you already have the input file (TXT or MTXT) and want to proceed directly to DSL conversion? (y/n): ").strip().lower()
 
-# Flag to control whether the script should proceed to the main conversion logic
 proceed_to_dsl = False
 
-# --- Process Flow based on User Input ---
-
 if skip_pyglossary == 'y':
-    # User confirms they have the file and want to proceed directly.
     print("Skipping Pyglossary and proceeding directly to DSL conversion.")
     proceed_to_dsl = True
 else:
-    # User does NOT have the file, so they must run Pyglossary first.
-    
-    # --- STEP 1: Run Pyglossary for manual conversion to MTXT ---
     print("\n" + "="*60)
     print("  STEP 1: Run Pyglossary for manual conversion to MTXT")
     print("  (Please convert your source dictionary file manually now)")
@@ -56,7 +55,6 @@ else:
         print(f"Error running pyglossary: {e}")
         exit(1)
 
-    # --- STEP 2: Ask to Convert TXT/MTXT to DSL (only if pyglossary was run) ---
     print("\n" + "="*60)
     answer = input("STEP 2: Do you want to convert the resulting file to .dsl format? (y/n): ").strip().lower()
 
@@ -64,48 +62,39 @@ else:
         proceed_to_dsl = True
 
 if not proceed_to_dsl:
-    print("Conversion to DSL skipped. Exiting.")
+    print("DSL conversion skipped. Exiting.")
     exit(0)
 
 # ========== Get Input File and Metadata ==========
 
-# Get file path
-input_file = input("Enter the input file path (e.g., MyDict.txt or MyDict.mtxt): ").strip()
+input_file = input("Enter input file path (e.g., MyDict.txt or MyDict.mtxt): ").strip()
 while not os.path.isfile(input_file):
     print("File not found, try again.")
-    input_file = input("Enter the input file path: ").strip()
+    input_file = input("Enter input file path: ").strip()
 
-# Defining defaults
 dict_name = os.path.splitext(os.path.basename(input_file))[0]
 source_lang = ""
 target_lang = ""
 raw_content_lines = []
 
-# IMPROVED DETECTION VARIABLES
 mtxt_header_count = 0
 mtxt_separator_found = False
 tab_separator_found = False
 
 try:
     with io.open(input_file, "r", encoding="utf-8") as f:
-        # Read all lines to analyze structure and parse later
         for i, line in enumerate(f):
             raw_content_lines.append(line)
             
-            # --- IMPROVED FILE DETECTION LOGIC ---
-            # تم زيادة نطاق البحث إلى 200 سطر لتغطية ملفات pyglossary
             if i < 200:
                 stripped_line = line.strip()
                 
-                # 1. Count MTXT header lines (e.g., ##name, ##sourceLang)
                 if stripped_line.startswith("##"):
                     mtxt_header_count += 1
                 
-                # 2. Check for the mandatory MTXT entry separator (</>)
                 if "</>" in stripped_line:
                     mtxt_separator_found = True
                 
-                # 3. Check for Tab separator (TXT format) - يجب أن لا يكون سطر رأس MTXT
                 if "\t" in line and not line.startswith("##"):
                     tab_separator_found = True
                     
@@ -113,42 +102,32 @@ except Exception as e:
     print(f"❌ Error reading input file: {e}")
     exit(1)
 
-# FINAL DECISION: Improved file type detection
 file_extension = input_file.lower()
 
 if file_extension.endswith('.mtxt'):
-    # إذا كان الامتداد .mtxt، نثق به ونعتبره MTXT
     is_mtxt = True
-    print("File extension is .mtxt - processing as MTXT format")
+    print("File extension is .mtxt - Processing as MTXT format")
 elif file_extension.endswith('.txt'):
-    # إذا كان الامتداد .txt: نعتمد على وجود فاصل الإدخال </>
-    # هذا يحل مشكلة الرؤوس المتبقية من pyglossary التي لا تجعل الملف MTXT بالضرورة
     if mtxt_separator_found:
         is_mtxt = True
         print("File extension is .txt but content appears to be MTXT format (</> found)")
     else:
         is_mtxt = False
-        print("File extension is .txt - processing as Tab-separated TXT format (No </> found)")
+        print("File extension is .txt - Processing as Tab-separated TXT format")
 else:
-    # للامتدادات الأخرى: الاعتماد على وجود فاصل الإدخال </> كأولوية
     if mtxt_separator_found:
         is_mtxt = True
         print("Detected MTXT format based on content (</> found)")
     elif tab_separator_found:
         is_mtxt = False
-        print("Detected Tab-separated TXT format based on content (No </> but Tab found)")
+        print("Detected Tab-separated TXT format based on content")
     else:
-        # Default fallback - ask user
-        print("⚠️  Could not auto-detect file format")
+        print("⚠️ Could not auto-detect file format")
         user_choice = input("Is this file MTXT format? (y/n): ").strip().lower()
         is_mtxt = (user_choice == 'y')
          
-# --- Conditional Parsing ---
-
 entries_list = []
 
-
-# --- Smart Language Code Mapping ---
 def normalize_lang(user_input, default):
     if not user_input:
         return default
@@ -161,19 +140,26 @@ def normalize_lang(user_input, default):
         return "ARABIC"
     if u in ("de", "ge", "ger", "german", "deutsch"):
         return "GERMAN"
+    if u in ("fr", "fre", "french", "français"):
+        return "FRENCH"
+    if u in ("es", "spa", "spanish", "español"):
+        return "SPANISH"
+    if u in ("ru", "rus", "russian"):
+        return "RUSSIAN"
+    if u in ("zh", "chi", "chinese"):
+        return "CHINESE"
+    if u in ("ja", "jpn", "japanese"):
+        return "JAPANESE"
 
-    # fallback
     return user_input.strip().upper()
     
 if is_mtxt:
     print("Processing as MTXT format...")
     
-    # 1. Extract metadata and process content lines
     content_lines = []
     for line in raw_content_lines:
         stripped = line.strip()
         
-        # Parse headers
         if stripped.startswith("##name"):
             dict_name = stripped.split("\t", 1)[1].strip()
         elif stripped.startswith("##sourceLang"):
@@ -181,66 +167,52 @@ if is_mtxt:
         elif stripped.startswith("##targetLang"):
             target_lang = stripped.split("\t", 1)[1].strip()
         elif stripped.startswith("##"):
-            continue # تجاهل باقي الرؤوس
+            continue
         else:
-            # MTXT often has literal \n which needs removal
             clean_line = line.replace("\\n", "")
             content_lines.append(clean_line.rstrip("\n"))
             
-    # 2. Split entries by </> and handle links (MTXT structure)
     raw = "\n".join(content_lines)
     blocks = [b.strip() for b in raw.split("</>") if b.strip()]
 
-    # NEW: تجميع كل المداخل لنفس الكلمة الرئيسية
     headword_entries = {}
-    links_to_process = {}  # لتخزين الروابط بشكل منفصل
+    links_to_process = {}
     
     for block in blocks:
         lines = [l.strip() for l in block.split("\n") if l.strip()]
         if not lines:
             continue
             
-        headword = lines[0]  # الكلمة الرئيسية
+        headword = lines[0]
         
-        # التحقق إذا كان هذا مدخل رابط (@@@LINK=)
         if len(lines) >= 2 and lines[1].startswith("@@@LINK="):
             target = lines[1].replace("@@@LINK=", "").strip()
             links_to_process[headword] = target
             continue
         
-        # إذا كانت هذه الكلمة موجودة مسبقاً، نضيف المحتوى الجديد إليها
         if headword in headword_entries:
-            # دمج المحتوى مع المحتوى السابق
             existing_content = headword_entries[headword]
             new_content = "\n".join(lines[1:])
             
-            # إضافة فاصل بين التعريفات المختلفة لنفس الكلمة
             if existing_content and new_content:
                 headword_entries[headword] = existing_content + "\n[m1]\\ [/m]\n" + new_content
             elif new_content:
                 headword_entries[headword] = existing_content + new_content
         else:
-            # أول مدخل لهذه الكلمة
             headword_entries[headword] = "\n".join(lines[1:])
 
-    # NEW: تجميع الكلمات المرتبطة
     word_groups = {}
     
-    # أولاً: إضافة كل الكلمات الرئيسية التي لديها محتوى
     for headword in headword_entries:
         word_groups[headword] = [headword]
         
-    # ثانياً: معالجة الروابط وإضافتها للمجموعات المناسبة
     for linked_word, main_word in links_to_process.items():
         if main_word in word_groups:
             word_groups[main_word].append(linked_word)
         else:
-            # إذا لم توجد الكلمة الرئيسية، ننشئ مجموعة جديدة
             word_groups[main_word] = [main_word, linked_word]
-            # نضيف مدخل فارغ للكلمة الرئيسية
             headword_entries[main_word] = ""
 
-    # 4. تحويل إلى تنسيق entries_list
     for main_head, all_headwords in word_groups.items():
         html_content = headword_entries.get(main_head, "")
         if html_content or all_headwords:
@@ -249,29 +221,25 @@ if is_mtxt:
                 'html': html_content
             })
             
-    # --- Prompt for languages if not found in MTXT headers ---
     if not source_lang:
-        source_lang = normalize_lang(input("Enter Source Language (en/ar/de): "), "ENGLISH")
+        source_lang = normalize_lang(input("Enter Source Language (en/ar/de/fr/es/ru/zh/ja): "), "ENGLISH")
 
     if not target_lang:
-        target_lang = normalize_lang(input("Enter Target Language (en/ar/de): "), "ARABIC")
+        target_lang = normalize_lang(input("Enter Target Language (en/ar/de/fr/es/ru/zh/ja): "), "ARABIC")
             
 else:
     print("Processing as Tab-separated TXT format...")
     
-    # NEW: تجميع المداخل لنفس الكلمة الرئيسية في ملفات TXT أيضاً
     headword_entries = {}
     
     for line in raw_content_lines:
         line = line.strip()
         if not line:
             continue
-        
-        # تخطي أسطر الرؤوس (##)
+            
         if line.startswith("##"):
             continue
             
-        # Split line by the first Tab character
         parts = line.split("\t", 1)
         
         if len(parts) != 2:
@@ -280,308 +248,442 @@ else:
         head = parts[0].strip()
         html = parts[1].strip()
         
-        # Split headwords by '|'
         headwords = [h.strip() for h in head.split("|") if h.strip()]
         
         if headwords and html:
-            # استخدام أول headword كمفتاح للتجميع
             main_headword = headwords[0]
             
             if main_headword in headword_entries:
-                # دمج المحتوى مع المحتوى السابق
                 existing_content = headword_entries[main_headword]['html']
                 existing_headwords = headword_entries[main_headword]['headwords']
                 
-                # إضافة أي headwords جديدة
                 for hw in headwords:
                     if hw not in existing_headwords:
                         existing_headwords.append(hw)
                 
-                # دمج المحتوى مع فاصل
                 headword_entries[main_headword]['html'] = existing_content + "\n[m1]\\ [/m]\n" + html
             else:
-                # أول مدخل لهذه الكلمة
                 headword_entries[main_headword] = {
                     'headwords': headwords,
                     'html': html
                 }
 
-    # تحويل إلى entries_list
     for entry_data in headword_entries.values():
         entries_list.append(entry_data)
 
-    # Since Tab-TXT doesn't have headers, prompt user for languages
     if not source_lang:
-        source_lang = normalize_lang(input("Enter Source Language (en/ar/de): "), "ENGLISH")
+        source_lang = normalize_lang(input("Enter Source Language (en/ar/de/fr/es/ru/zh/ja): "), "ENGLISH")
 
     if not target_lang:
-        target_lang = normalize_lang(input("Enter Target Language (en/ar/de): "), "ARABIC")
+        target_lang = normalize_lang(input("Enter Target Language (en/ar/de/fr/es/ru/zh/ja): "), "ARABIC")
 
 
 print(f"✅ Successfully loaded {len(entries_list)} entries.")
 
-# Defining the output DSL file name
 output_file = dict_name + ".dsl"
-print(f"Output DSL will be: {output_file}")
+print(f"Output DSL file will be: {output_file}")
 
+# ========== Enhanced HTML Parser with Full DSL Support ==========
 
-# ========== Fix phonetic brackets only for pronunciation (No change) ==========
-# ========== Fix phonetic brackets - UPDATED to preserve DSL tags ==========
-def fix_phonetic_brackets(text):
-    # قائمة بوسوم DSL التي نريد الحفاظ عليها
-    dsl_tags = ["m1", "b", "i", "u", "c", "s", "/m", "/b", "/i", "/u", "/c", "/s", 
-                "li", "/li", "ol", "/ol", "ul", "/ul"]  # NEW: added list tags
+# 🧠 THE SMART PARSER (قلب الكود المعدل)
+# ========================================================
+
+class AdvancedDSLParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.output = ""
+        self.stack = []  
+        self.p_stack = [] 
+        self.last_tag_was_br = False
+
+    def emit(self, text):
+        self.output += text
     
+    def handle_starttag(self, tag, attrs):
+        attrs_dict = dict(attrs)
+        tag_lower = tag.lower()
+        
+        # 1. منطق الـ Paragraph الذكي
+        if tag_lower == "p":
+            style = attrs_dict.get('style', '').lower()
+            
+            # فحص المسافة البادئة
+            # إذا كان 2em فهو مزاح [m2]، وإلا فهو أساسي [m1]
+            if '2em' in style or 'padding-left:2em' in style.replace(" ", ""):
+                margin_tag = "[m2]"
+            else:
+                margin_tag = "[m1]" # يمكنك تغييرها لـ [m0] إذا أصررت
+            
+            # سطر جديد قبل الفقرة إذا لم يكن موجوداً
+            if self.output and not self.output.endswith('\n'):
+                self.emit("\n")
+            
+            self.emit(f"\t\t{margin_tag}")
+            self.p_stack.append(margin_tag)
+            return 
+
+        # 2. منطق class="p" (يتحول للون الأخضر/التنسيق)
+        if attrs_dict.get('class') == 'p':
+            self.emit("[p]")
+            self.stack.append(('special_p', attrs_dict)) 
+            return 
+
+        # بقية التاقات
+        self.stack.append((tag_lower, attrs_dict))
+        
+        if tag_lower == "br":
+            # نحول الـ br لسطر جديد ومسافة بادئة
+            self.emit("\n\t")
+        
+        elif tag_lower == "font":
+            color = attrs_dict.get("color", "")
+            if color:
+                clean = color.lstrip("#")
+                self.emit(f"[c {clean}]")
+            else:
+                self.emit("[c]")
+        
+        elif tag_lower in ["b", "strong"]:
+            self.emit("[b]")
+        
+        elif tag_lower in ["i", "em"]:
+            self.emit("[i]")
+        
+        elif tag_lower == "u":
+            self.emit("[u]")
+        elif tag_lower == "a":
+            href = attrs_dict.get("href", "")
+            if href.startswith("entry://") or href: 
+                self.emit("[ref]")
+                self.stack.append((tag_lower, attrs_dict)) 
+                return 
+
+    def handle_endtag(self, tag):
+        tag_lower = tag.lower()
+        
+        # إغلاق الفقرة الهيكلية
+        if tag_lower == "p":
+            if self.p_stack:
+                self.p_stack.pop()
+                self.emit("[/m]")
+            return
+
+        if not self.stack: return
+
+        # إغلاق class="p"
+        if self.stack[-1][0] == 'special_p':
+             self.emit("[/p]")
+             self.stack.pop()
+             return
+
+        # إغلاق التاقات العادية
+        for i in range(len(self.stack)-1, -1, -1):
+            stack_tag, attrs_dict = self.stack[i]
+            if stack_tag == tag_lower:
+                if tag_lower == "font": self.emit("[/c]")
+                elif tag_lower in ["b", "strong"]: self.emit("[/b]")
+                elif tag_lower in ["i", "em"]: self.emit("[/i]")
+                elif tag_lower == "u": self.emit("[/u]")
+                elif tag_lower == "a": 
+                    self.emit("[/ref]") 
+                del self.stack[i]
+                return
+
+    def handle_data(self, data):
+        # 🟢 هنا السحر: تحويل المسافة غير المنكسرة لسطر فارغ DSL
+        if data == '\xa0' or data.strip() == '&nbsp;':
+            self.emit(r"\ ") # هذا سينتج شرطة مائلة ومسافة
+            return
+            
+        if data.strip():
+            clean_data = re.sub(r'\s+', ' ', data)
+            # إضافة مسافة قبل الكلمة إذا لم تكن ملتصقة
+            if self.output and self.output[-1] not in [' ', '\t', '\n', '[', ']'] and clean_data[0] not in ['.', ',', ';', ':']:
+                 self.emit(' ' + clean_data)
+            else:
+                 self.emit(clean_data)
+
+    def handle_entityref(self, name):
+        # 🟢 التقاط الـ nbsp المكتوبة كـ entity
+        if name == "nbsp":
+            self.emit(r"\ ") 
+        else:
+            self.emit(f'&{name};')
+
+    def close(self):
+        super().close()
+        result = self.output
+        # تنظيف نهائي
+        result = re.sub(r'(\[m\d\]\\ \[/m\]\s*)+', r'[m1]\\ [/m]\n', result)
+        # إغلاق أي تاقات بقيت مفتوحة
+        while self.p_stack:
+            result += "[/m]"
+            self.p_stack.pop()
+        
+        # إغلاق تاقات التنسيق المفتوحة
+        for tag, _ in reversed(self.stack):
+             if tag == "font": result += "[/c]"
+             elif tag in ["b", "strong"]: result += "[/b]"
+             elif tag in ["i", "em"]: result += "[/i]"
+             elif tag == 'special_p': result += "[/p]"
+
+        return result.strip()
+
+# ========== Helper Functions ==========
+
+def convert_br_tags(html_content):
+    """
+    Convert HTML br tags to DSL format:
+    - <br><br> or multiple <br> tags -> [m1]\ [/m] (empty line in DSL)
+    - Single <br> -> \n\t (new line)
+    """
+    html_content = re.sub(
+        r'(<br\s*/?>\s*){2,}', 
+        '\n\t[m1]\\ [/m]\n\t', 
+        html_content, 
+        flags=re.IGNORECASE
+    )
+    
+    html_content = re.sub(
+        r'<br\s*/?>', 
+        '\n\t', 
+        html_content, 
+        flags=re.IGNORECASE
+    )
+    
+    return html_content
+
+def convert_html_to_dsl(html_content):
+    # تنظيف مسبق
+    html_content = html_content.replace("&nbsp;", " ") # توحيد المسافات
+    parser = AdvancedDSLParser()
+    parser.feed(html_content)
+    return parser.close()
+
+def fix_phonetic_brackets(text):
+    """Fix phonetic brackets while preserving DSL tags"""
     def repl(m):
         inner = m.group(1).strip()
         
-        # إذا كان الوسم من وسوم DSL المعروفة، نتركه كما هو بين أقواس مربعة
+        dsl_tags = ["m1", "m2", "m3", "m4", "m5", "m6", "m7", "m8", "m9",
+                   "b", "i", "u", "c", "s", "trn", "ex", "com", "ref", "url",
+                   "sub", "sup", "lang", "p", "!trs", "*", "'",
+                   "/m", "/b", "/i", "/u", "/c", "/s", "/trn", "/ex", "/com",
+                   "/ref", "/url", "/sub", "/sup", "/lang", "/p", "/!trs", "/*", "/'",
+                   "li", "/li", "ol", "/ol", "ul", "/ul"]
+        
         for tag in dsl_tags:
             if inner == tag or inner.startswith(tag + " "):
                 return f"[{inner}]"
         
-        # وإلا نجعله بين أقواس معقوفة (للمحتوى الصوتي)
         return "{" + inner + "}"
 
     return re.sub(r"\[([^\]]+)\]", repl, text)
 
-# ========== HTML Parser (Updated with sound link conversion) ==========
-# ========== HTML Parser (Updated with list support) ==========
-# ========== HTML Parser (Updated with proper list numbering) ==========
-# ========== HTML Parser (Updated with list indentation) ==========
-class LingvoHTMLParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.output = ""
-        self.stack = []
-        self.paragraph_started = False 
-        self.list_stack = []  # NEW: سيخزن (type, level, start_number)
-        self.list_level = 0   # NEW: مستوى التداخل الحالي
+def format_paragraphs_for_dsl(text):
+    """Format text to match DSL Lingvo paragraph system"""
+    lines = text.split('\n')
+    formatted_lines = []
+    in_margin_block = False
+    current_margin = 1
     
-    def emit(self, text):
-        self.output += text
-
-    def handle_starttag(self, tag, attrs):
-        attrs_dict = dict(attrs)
-        self.stack.append((tag, attrs_dict))
-
-        if tag in ["object", "img"]:
-            file_attr = attrs_dict.get("data") or attrs_dict.get("src")
-            if file_attr:
-                self.emit(f"\n\t[m1][s]{file_attr}[/s][/m]\n\t")
-
-        elif tag == "br":
-            self.emit("\n\t")
-
-        elif tag == "p":
-            if self.paragraph_started:
-                self.emit("\n\t[m1]\\ [/m]\n\t") 
-            self.paragraph_started = True
-
-        elif tag == "font":
-            color = attrs_dict.get("color")
-            if color:
-                clean = color.lstrip("#")
-                self.emit(f"[c {clean}]")
-
-        elif tag == "strong":
-            self.emit("[/m]\n\t[m1]")
-
-        elif tag == "b":
-            self.emit("[b]")
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
         
-        elif tag == "i":
-            self.emit("[i]")
-
-        elif tag == "u":
-            self.emit("[u]")
-
-        elif tag == "s":
-            self.emit("[s]")
+        if line.startswith('@'):
+            if in_margin_block:
+                formatted_lines.append("\t" + " " * (current_margin - 1) + "[/m]")
+                in_margin_block = False
             
-        elif tag == "a":
-            href = attrs_dict.get("href", "")
-            if href.startswith("sound://"):
-                sound_file = href[8:]
-                self.emit(f"\n\t[m1][s]{sound_file}[/s][/m]\n\t")
+            formatted_lines.append("\t@ " + line[1:].strip())
+            current_margin = 1
         
-        # NEW: معالجة القوائم مع المسافة البادئة
-        elif tag == "ol":
-            self.list_level += 1
-            self.list_stack.append(('ol', self.list_level, 1))
-            self.emit("\n\t")  # فاصل قبل بداية القائمة
-            
-        elif tag == "ul":
-            self.list_level += 1
-            self.list_stack.append(('ul', self.list_level, 0))
-            self.emit("\n\t")  # فاصل قبل بداية القائمة
-            
-        elif tag == "li":
-            if self.list_stack:
-                list_type, level, number = self.list_stack[-1]
-                
-                # NEW: إضافة مسافة بادئة بناءً على مستوى القائمة
-                indent = "\t" * level  # تاب واحد لكل مستوى
-                
-                if list_type == 'ol':
-                    # قائمة مرتبة: نستخدم الرقم الحالي
-                    self.emit(f"{indent}{number}. ")
-                    self.list_stack[-1] = (list_type, level, number + 1)  # زيادة العداد
-                else:
-                    # قائمة غير مرتبة: نستخدم النقطة
-                    self.emit(f"{indent}• ")
+        elif re.match(r'^\[m[1-9]\]', line):
+            margin_match = re.match(r'^\[m([1-9])\]', line)
+            if margin_match:
+                current_margin = int(margin_match.group(1))
+                in_margin_block = True
+                formatted_lines.append("\t" + " " * (current_margin - 1) + line)
             else:
-                # إذا لم تكن داخل قائمة، نستخدم النقطة مع مسافة بادئة بسيطة
-                self.emit("\t• ")
-    
-    def handle_endtag(self, tag):
-        if tag == "font":
-            for i in range(len(self.stack)-1, -1, -1):
-                stack_tag, attrs_dict = self.stack[i]
-                if stack_tag == "font":
-                    color = attrs_dict.get("color")
-                    if color:
-                        self.emit("[/c]")
-                    break
+                formatted_lines.append("\t" + line)
         
-        elif tag == "p":
-            self.emit("\n\t") 
-
-        elif tag == "b":
-            self.emit("[/b]")
-
-        elif tag == "i":
-            self.emit("[/i]\n\t[m1]\\ [/m]\n\t")
-
-        elif tag == "u":
-            self.emit("[/u]")
-
-        elif tag == "s":
-            self.emit("[/s]")
-
-        elif tag == "strong":
-            self.emit("")
-            
-        elif tag == "a":
-            pass
+        elif line == '[/m]':
+            if in_margin_block:
+                formatted_lines.append("\t" + " " * (current_margin - 1) + line)
+                in_margin_block = False
+                current_margin = 1
         
-        # NEW: إغلاق وسوم القوائم مع تقليل المستوى
-        elif tag == "ol":
-            if self.list_stack:
-                self.list_stack.pop()
-            self.list_level = max(0, self.list_level - 1)
-            self.emit("\n\t")  # فاصل بعد نهاية القائمة
-            
-        elif tag == "ul":
-            if self.list_stack:
-                self.list_stack.pop()
-            self.list_level = max(0, self.list_level - 1)
-            self.emit("\n\t")  # فاصل بعد نهاية القائمة
-            
-        elif tag == "li":
-            self.emit("\n\t")  # فاصل بعد كل عنصر قائمة
+        else:
+            if in_margin_block:
+                indent = "\t" + " " * (current_margin - 1)
+                formatted_lines.append(indent + line)
+            else:
+                formatted_lines.append("\t" + line)
     
-    def handle_data(self, data):
-        self.emit(data)
+    if in_margin_block:
+        formatted_lines.append("\t" + " " * (current_margin - 1) + "[/m]")
     
-    def close(self):
-        super().close()
-        return self.output
+    return '\n'.join(formatted_lines)
+
+def detect_wiktionary_structure(html_block):
+    """Detect and convert typical Wiktionary structure"""
+    result = html_block
+    result = re.sub(r'<h[1-6][^>]*>(.*?)</h[1-6]>', r'\n@ \1\n', result, flags=re.IGNORECASE)
+    result = re.sub(r'<li[^>]*>(\d+\.)\s*(.*?)</li>', r'\n\t[m1]\1 \2[/m]', result, flags=re.IGNORECASE)
+    result = re.sub(r'<i>(.*?)</i>', r'[i]\1[/i]', result, flags=re.IGNORECASE)
+    result = re.sub(r'<a\s+href="([^"]+)"[^>]*>(.*?)</a>', convert_wiktionary_link, result, flags=re.IGNORECASE)
+    return result
+
+def convert_wiktionary_link(match):
+    href = match.group(1)
+    text = match.group(2)
+    if 'wiki' in href.lower() or 'wiktionary' in href.lower():
+        return f'[url]{href}[/url]'
+    return f'[ref]{text}[/ref]'
+
+def validate_dsl_tags(text):
+    """
+    Validate DSL tags and fix common issues.
+    UPDATED: Correctly handles tags with attributes like [c red] or [lang name="en"]
+    """
+    
+    # 1. Simple Paired Tags (no attributes usually)
+    simple_tags = [
+        ('[b]', '[/b]'),
+        ('[i]', '[/i]'),
+        ('[u]', '[/u]'),
+        ('[s]', '[/s]'),
+        ('[trn]', '[/trn]'),
+        ('[ex]', '[/ex]'),
+        ('[com]', '[/com]'),
+        ('[ref]', '[/ref]'),
+        ('[url]', '[/url]'),
+        ('[sub]', '[/sub]'),
+        ('[sup]', '[/sup]'),
+        ('[p]', '[/p]'),
+        ('[!trs]', '[/!trs]'),
+        ("[']", "[/']"),
+        ('[*]', '[/*]'),
+    ]
+    
+    result = text
+    
+    for open_tag, close_tag in simple_tags:
+        open_count = result.count(open_tag)
+        close_count = result.count(close_tag)
         
+        if open_count > close_count:
+            result += close_tag * (open_count - close_count)
+        elif close_count > open_count:
+            result = result.replace(close_tag, '', close_count - open_count)
 
+    # 2. Complex Tags (with attributes) - handled via Regex
+    # Matches [tag] or [tag ...] 
+    complex_tags = [
+        ('c', '[/c]'),
+        ('lang', '[/lang]')
+    ]
 
-# ========== Write DSL ==========
+    for tag_name, close_tag in complex_tags:
+        # Regex to match [tag] or [tag space...]
+        # \[tag matches literal [tag
+        # (?:\]|\s) matches either closing bracket ] OR a space
+        pattern = r'\[' + tag_name + r'(?:\]|\s)'
+        
+        open_count = len(re.findall(pattern, result))
+        close_count = result.count(close_tag)
+        
+        if open_count > close_count:
+            result += close_tag * (open_count - close_count)
+        elif close_count > open_count:
+            # Safely remove extra closing tags
+            result = result.replace(close_tag, '', close_count - open_count)
+    
+    # Check margin tags
+    margin_pattern = r'\[m([1-9])\]'
+    margin_tags = re.findall(margin_pattern, result)
+    close_margin_count = result.count('[/m]')
+    
+    if len(margin_tags) > close_margin_count:
+        result += '[/m]' * (len(margin_tags) - close_margin_count)
+    
+    return result
+
+def clean_dsl_output(text):
+    """Clean final DSL output"""
+    lines = text.split('\n')
+    cleaned_lines = []
+    
+    for line in lines:
+        line = re.sub(r'[ \t]{2,}', ' ', line)
+        line = line.rstrip()
+        
+        if line or line == '':
+            cleaned_lines.append(line)
+    
+    result = '\n'.join(cleaned_lines)
+    result = re.sub(r'\n\s*\n\s*\n+', '\n\n', result)
+    return result
+
+# ========== Write DSL File ==========
+
 try:
     with io.open(output_file, "w", encoding="utf-16") as out:
         out.write(f'#NAME "{dict_name}"\n')
         out.write(f'#INDEX_LANGUAGE "{source_lang}"\n')
         out.write(f'#CONTENTS_LANGUAGE "{target_lang}"\n\n')
 
-        # Iterate over the standardized entries list
-        for entry in entries_list:
+        total_entries = len(entries_list)
+        for idx, entry in enumerate(entries_list, 1):
             headwords = entry['headwords']
             html_block = entry['html']
+            
+            if idx % 100 == 0 or idx == total_entries:
+                print(f"⏳ Processing entry {idx} of {total_entries}...")
 
-            # 1. Write all headwords/aliases
             for w in headwords:
                 out.write(w + "\n")
 
-            # If there is no content (link-only entries in MTXT), write an empty m1
             if not html_block:
                 out.write("\t[m1][/m]\n")
                 continue
 
-            # 2. Parse HTML content
-            parser = LingvoHTMLParser()
-            parser.feed(html_block)
-            parsed = parser.close()
-
-            # 3. Apply phonetic fix
-            parsed = fix_phonetic_brackets(parsed)
-
-            # 4. Cleanup and formatting
+            dsl_content = convert_html_to_dsl(html_block)
             
-            # Remove repeated hard paragraph breaks
-            parsed = re.sub(
-                r"(\n\t\[m1\]\\ \[/m\]\n\t\s*){2,}",
-                "\n\t[m1]\\ [/m]\n\t",
-                parsed
-            )
+            if 'wiki' in html_block.lower() or 'wiktionary' in html_block.lower():
+                dsl_content = detect_wiktionary_structure(dsl_content)
             
-            # Remove excessive line breaks and tabs
-            parsed = re.sub(r"(\n\t){2,}", "\n\t", parsed)
-            parsed = re.sub(r"(\n\s*){2,}", "\n", parsed).strip()
+            dsl_content = fix_phonetic_brackets(dsl_content)
+            dsl_content = format_paragraphs_for_dsl(dsl_content)
+            dsl_content = validate_dsl_tags(dsl_content)
+            dsl_content = clean_dsl_output(dsl_content)
+            
+            out.write(dsl_content + "\n")
 
-            # Ensure every output line in DSL starts with a tab
-# INCLUDING lines coming directly from MTXT/TXT before HTML parsing
-# Ensure all lines start with a tab and apply [m1] where needed
-# Ensure every output line in DSL starts with a tab
-            lines = parsed.split("\n")
-            final_lines = []
-
-            for ln in lines:
-                ln = ln.strip()
-                if not ln:
-                    continue
-
-                # السطر المخصص للفاصل
-                if ln == "[m1]\\ [/m]":
-                    final_lines.append("\t" + ln)
-                    continue
-
-                # إذا السطر لا يحتوي [m..] نضيفه
-                if not ln.startswith("[m"):
-                    final_lines.append("\t[m1]" + ln + "[/m]")
-                else:
-                    final_lines.append("\t" + ln)
-
-            parsed = "\n".join(final_lines)
-
-            out.write(parsed + "\n")
-
-    print("\n✅ DSL conversion completed successfully.")
+    print(f"\n✅ DSL conversion completed successfully! File: {output_file}")
     
     dsl_conversion_success = True
 
 except Exception as e:
     print(f"❌ Error during DSL conversion: {e}")
+    import traceback
+    traceback.print_exc()
     dsl_conversion_success = False
 
-
-# --- 4. ZIP Resources ---
+# --- 4. Compress Resources ---
 
 if dsl_conversion_success:
     print("\n" + "="*60)
     print("STEP 3: Checking for resources folder and compressing it...")
     print("="*60)
     
-    # We assume the resource folder name is based on the input file name
     res_folder_path = input_file + "_res"
 
     print(f"Searching for resources folder: {res_folder_path}")
 
     if os.path.isdir(res_folder_path):
-        # The zip file name is based on the DSL output name (MyDict.files.dsl.zip)
         zip_output_file = output_file + ".files.zip"
 
         print(f"Resources folder found. Starting ZIP compression to: {zip_output_file}")
@@ -598,7 +700,7 @@ if dsl_conversion_success:
                         print(f"  Adding file: {arcname}")
                         zipf.write(file_path, arcname)
 
-            print(f"✅ Resources compression completed successfully. ZIP file created: {zip_output_file}")
+            print(f"✅ Resources compression completed successfully. ZIP file: {zip_output_file}")
 
         except Exception as e:
             print(f"❌ Error during resources ZIP compression: {e}")
@@ -612,18 +714,15 @@ if dsl_conversion_success:
     print("STEP 4: Compressing DSL file to DSL.DZ format...")
     print("="*60)
     
-    # استخدام المسار المحدد لـ idzip في Termux
     idzip_path = "/data/data/com.termux/files/usr/bin/idzip"
     
     if os.path.exists(idzip_path):
         print("idzip found in Termux path. Starting DSL compression...")
         
         try:
-            # حفظ حجم الملف الأصلي قبل الضغط
             original_size = os.path.getsize(output_file)
             print(f"Original file size: {original_size} bytes")
             
-            # Run idzip command with full path
             command = f'{idzip_path} "{output_file}"'
             print(f"Running command: {command}")
             
@@ -633,12 +732,12 @@ if dsl_conversion_success:
                 print(f"✅ DSL compression completed successfully!")
                 print(f"📁 Compressed file: {output_file}.dz")
                 
-                # Check if the compressed file was created
                 if os.path.exists(output_file + ".dz"):
                     compressed_size = os.path.getsize(output_file + ".dz")
-                    compression_ratio = (1 - compressed_size/original_size) * 100
-                    print(f"📊 Compression ratio: {compression_ratio:.1f}%")
-                    print(f"💾 Note: idzip automatically removes the original .dsl file")
+                    if original_size > 0:
+                        compression_ratio = (1 - compressed_size/original_size) * 100
+                        print(f"📊 Compression ratio: {compression_ratio:.1f}%")
+                    print("💾 Note: idzip automatically removes the original .dsl file")
                 else:
                     print("⚠️ Compressed file was not created successfully")
             else:
@@ -646,7 +745,6 @@ if dsl_conversion_success:
                 print(f"Error output: {result.stderr}")
                 
         except FileNotFoundError:
-            # هذا طبيعي لأن idzip يحذف الملف الأصلي
             if os.path.exists(output_file + ".dz"):
                 print(f"✅ DSL conversion completed successfully!")
                 print(f"📁 Final compressed file: {output_file}.dz")
@@ -660,3 +758,13 @@ if dsl_conversion_success:
         print("⚠️ idzip not found in the specified Termux path.")
         print("Please make sure python-idzip is installed in Termux:")
         print("  pkg install python-idzip")
+
+print("\n" + "="*60)
+print("🎉 Process completed successfully!")
+print("="*60)
+print(f"📊 Statistics:")
+print(f"   • Total entries: {len(entries_list)}")
+print(f"   • Source language: {source_lang}")
+print(f"   • Target language: {target_lang}")
+print(f"   • Dictionary name: {dict_name}")
+print("="*60)
