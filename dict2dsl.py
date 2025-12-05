@@ -7,12 +7,12 @@ import zipfile
 
 # ==============================================
 # DSL Dictionary Converter - Enhanced Complete Version
-# Version Sobae 💖 - Full DSL Tags Support
+# Version SOBAE - Full DSL Tags Support
 # ==============================================
 
 print("="*60)
 print("DSL Dictionary Converter - Enhanced Complete Version")
-print("By Sobae 💖")
+print("By SOBAE - Fixed Color Tags")
 print("="*60)
 
 # --- 1. Check Dependencies ---
@@ -308,11 +308,10 @@ class AdvancedDSLParser(HTMLParser):
             style = attrs_dict.get('style', '').lower()
             
             # فحص المسافة البادئة
-            # إذا كان 2em فهو مزاح [m2]، وإلا فهو أساسي [m1]
             if '2em' in style or 'padding-left:2em' in style.replace(" ", ""):
                 margin_tag = "[m2]"
             else:
-                margin_tag = "[m1]" # يمكنك تغييرها لـ [m0] إذا أصررت
+                margin_tag = "[m1]"
             
             # سطر جديد قبل الفقرة إذا لم يكن موجوداً
             if self.output and not self.output.endswith('\n'):
@@ -327,8 +326,24 @@ class AdvancedDSLParser(HTMLParser):
             self.emit("[p]")
             self.stack.append(('special_p', attrs_dict)) 
             return 
+        
+        # 🟢 3. منطق القوائم المرقمة (ol و li)
+        elif tag_lower == "ol":
+            self.list_counter = 0 
+            return
 
-        # بقية التاقات
+        elif tag_lower == "li":
+            self.list_counter += 1 
+            if self.output and not self.output.endswith('\n'):
+                self.emit("\n")
+            
+            self.emit(f"\t\t[m2]") 
+            self.emit(f"{self.list_counter}. ")
+            
+            self.stack.append((tag_lower, attrs_dict))
+            return 
+        
+        # بقية التاقات (يتم إضافتها إلى الستاك قبل المعالجة لضمان الإغلاق)
         self.stack.append((tag_lower, attrs_dict))
         
         if tag_lower == "br":
@@ -346,17 +361,36 @@ class AdvancedDSLParser(HTMLParser):
         elif tag_lower in ["b", "strong"]:
             self.emit("[b]")
         
+        # 🟢 4. منطق عنوان قسم الكلام (i/em بدون class)
         elif tag_lower in ["i", "em"]:
-            self.emit("[i]")
-        
+            # نتحقق إذا كان الوسم يحتوي على أي class (مثل class="p"). إذا لم يكن، نعامله كـ POS.
+            if not attrs_dict.get('class'):
+                
+                # 1. إخراج السطر الفارغ المطلوب: [m1]\ [/m]
+                if self.output and not self.output.endswith('\n'):
+                    self.emit("\n") 
+                self.emit(f"\t\t[m1]\ [/m]\n")
+                
+                # 2. بدء سطر عنوان القسم: [m1][b]
+                self.emit(f"\t\t[m1][b]") 
+                
+                # 3. فتح وسم <i>
+                self.emit("[i]")
+                
+                # نستخدم اسم خاص لكي نعرف أن هذا وسم يجب أن يغلق [m1] و [b]
+                self.stack[-1] = ('special_pos_i', attrs_dict) 
+                return # تم التعامل معه بالكامل
+            
+            # إذا كان i/em يحتوي على class، نعامله كتنسيق عادي:
+            self.emit("[i]") 
+            
         elif tag_lower == "u":
             self.emit("[u]")
         elif tag_lower == "a":
             href = attrs_dict.get("href", "")
             if href.startswith("entry://") or href: 
                 self.emit("[ref]")
-                self.stack.append((tag_lower, attrs_dict)) 
-                return 
+                return # لا داعي لإضافته للستاك مرة أخرى هنا، لأنه أضيف أعلاه
 
     def handle_endtag(self, tag):
         tag_lower = tag.lower()
@@ -366,6 +400,10 @@ class AdvancedDSLParser(HTMLParser):
             if self.p_stack:
                 self.p_stack.pop()
                 self.emit("[/m]")
+            return
+        
+        # إغلاق ol
+        if tag_lower == "ol":
             return
 
         if not self.stack: return
@@ -379,10 +417,19 @@ class AdvancedDSLParser(HTMLParser):
         # إغلاق التاقات العادية
         for i in range(len(self.stack)-1, -1, -1):
             stack_tag, attrs_dict = self.stack[i]
+            
+            # 🟢 NEW: إغلاق وسم عنوان القسم
+            if stack_tag == 'special_pos_i':
+                self.emit("[/i][/b][/m]") # نغلق </i> و </b> و [m1]
+                del self.stack[i]
+                return
+            
             if stack_tag == tag_lower:
-                if tag_lower == "font": self.emit("[/c]")
+                if tag_lower == "li": 
+                    self.emit("[/m]")
+                elif tag_lower == "font": self.emit("[/c]")
                 elif tag_lower in ["b", "strong"]: self.emit("[/b]")
-                elif tag_lower in ["i", "em"]: self.emit("[/i]")
+                elif tag_lower in ["i", "em"]: self.emit("[/i]") # هذا للـ <i> العادي
                 elif tag_lower == "u": self.emit("[/u]")
                 elif tag_lower == "a": 
                     self.emit("[/ref]") 
@@ -422,12 +469,16 @@ class AdvancedDSLParser(HTMLParser):
         
         # إغلاق تاقات التنسيق المفتوحة
         for tag, _ in reversed(self.stack):
-             if tag == "font": result += "[/c]"
+             # 🟢 يجب أن نغلق special_pos_i هنا أيضاً إذا لم يتم إغلاقه
+             if tag == 'special_pos_i': result += "[/i][/b][/m]"
+             elif tag == "font": result += "[/c]"
              elif tag in ["b", "strong"]: result += "[/b]"
              elif tag in ["i", "em"]: result += "[/i]"
              elif tag == 'special_p': result += "[/p]"
 
         return result.strip()
+
+
 
 # ========== Helper Functions ==========
 
@@ -640,8 +691,7 @@ try:
             headwords = entry['headwords']
             html_block = entry['html']
             
-            if idx % 100 == 0 or idx == total_entries:
-                print(f"⏳ Processing entry {idx} of {total_entries}...")
+            
 
             for w in headwords:
                 out.write(w + "\n")
@@ -700,7 +750,7 @@ if dsl_conversion_success:
                         print(f"  Adding file: {arcname}")
                         zipf.write(file_path, arcname)
 
-            print(f"✅ Resources compression completed successfully. ZIP file: {zip_output_file}")
+            print(f"✅ Resources compression is completing successfully. ZIP file: {zip_output_file}")
 
         except Exception as e:
             print(f"❌ Error during resources ZIP compression: {e}")
