@@ -4,7 +4,7 @@ import re
 import subprocess 
 from html.parser import HTMLParser
 import zipfile 
-
+ 
 # ==============================================
 # DSL Dictionary Converter - Enhanced Complete Version
 # Version SOBAE - Full DSL Tags Support
@@ -12,7 +12,7 @@ import zipfile
 
 print("="*60)
 print("DSL Dictionary Converter - Enhanced Complete Version")
-print("By SOBAE - Fixed Color Tags")
+print("By SOBAE")
 print("="*60)
 
 # --- 1. Check Dependencies ---
@@ -310,6 +310,8 @@ class AdvancedDSLParser(HTMLParser):
             # فحص المسافة البادئة
             if '2em' in style or 'padding-left:2em' in style.replace(" ", ""):
                 margin_tag = "[m2]"
+            elif '3em' in style or 'padding-left:3em' in style.replace(" ", ""):
+                margin_tag = "[m3]"
             else:
                 margin_tag = "[m1]"
             
@@ -338,6 +340,7 @@ class AdvancedDSLParser(HTMLParser):
                 self.emit("\n")
             
             self.emit(f"\t\t[m2]") 
+            self.emit(f"\t\t[m3]") 
             self.emit(f"{self.list_counter}. ")
             
             self.stack.append((tag_lower, attrs_dict))
@@ -363,26 +366,7 @@ class AdvancedDSLParser(HTMLParser):
         
         # 🟢 4. منطق عنوان قسم الكلام (i/em بدون class)
         elif tag_lower in ["i", "em"]:
-            # نتحقق إذا كان الوسم يحتوي على أي class (مثل class="p"). إذا لم يكن، نعامله كـ POS.
-            if not attrs_dict.get('class'):
-                
-                # 1. إخراج السطر الفارغ المطلوب: [m1]\ [/m]
-                if self.output and not self.output.endswith('\n'):
-                    self.emit("\n") 
-                self.emit(f"\t\t[m1]\ [/m]\n")
-                
-                # 2. بدء سطر عنوان القسم: [m1][b]
-                self.emit(f"\t\t[m1][b]") 
-                
-                # 3. فتح وسم <i>
-                self.emit("[i]")
-                
-                # نستخدم اسم خاص لكي نعرف أن هذا وسم يجب أن يغلق [m1] و [b]
-                self.stack[-1] = ('special_pos_i', attrs_dict) 
-                return # تم التعامل معه بالكامل
-            
-            # إذا كان i/em يحتوي على class، نعامله كتنسيق عادي:
-            self.emit("[i]") 
+            self.emit("  [b]") 
             
         elif tag_lower == "u":
             self.emit("[u]")
@@ -419,17 +403,17 @@ class AdvancedDSLParser(HTMLParser):
             stack_tag, attrs_dict = self.stack[i]
             
             # 🟢 NEW: إغلاق وسم عنوان القسم
-            if stack_tag == 'special_pos_i':
-                self.emit("[/i][/b][/m]") # نغلق </i> و </b> و [m1]
-                del self.stack[i]
-                return
+         #   if stack_tag == 'special_pos_i':
+             #   self.emit("[/i][/b][/m]") # نغلق </i> و </b> و [m1]
+             #   del self.stack[i]
+             #   return
             
             if stack_tag == tag_lower:
                 if tag_lower == "li": 
                     self.emit("[/m]")
                 elif tag_lower == "font": self.emit("[/c]")
                 elif tag_lower in ["b", "strong"]: self.emit("[/b]")
-                elif tag_lower in ["i", "em"]: self.emit("[/i]") # هذا للـ <i> العادي
+                elif tag_lower in ["i", "em"]: self.emit("[/b]  ") # هذا للـ <i> العادي
                 elif tag_lower == "u": self.emit("[/u]")
                 elif tag_lower == "a": 
                     self.emit("[/ref]") 
